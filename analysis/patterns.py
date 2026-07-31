@@ -88,18 +88,18 @@ def detect_patterns(
 
     # Hammer: long lower wick, small upper wick, body in the upper part of the
     # range. The strategy only counts it when it appears at a demand level.
-    hammer = (
-        (lower_wick >= 2.0 * body)
-        & (upper_wick <= body)
-        & (close_position >= 0.6)
-        & ~doji
-    )
-    shooting_star = (
-        (upper_wick >= 2.0 * body)
-        & (lower_wick <= body)
-        & (close_position <= 0.4)
-        & ~doji
-    )
+    #
+    # Deliberately NOT excluded when the bar is also a doji: a hammer with a
+    # near-zero body is a dragonfly, the *strongest* form of the pattern, not a
+    # disqualified one. Patterns here are independent flags rather than a
+    # partition, and pattern_bias() resolves any genuine conflict. The upper
+    # wick is compared against a floor of 10% of the range so a tiny body does
+    # not make the "small upper wick" test impossible to satisfy.
+    small_upper = upper_wick <= pd.concat([body, 0.10 * span], axis=1).max(axis=1)
+    small_lower = lower_wick <= pd.concat([body, 0.10 * span], axis=1).max(axis=1)
+
+    hammer = (lower_wick >= 2.0 * body) & small_upper & (close_position >= 0.6)
+    shooting_star = (upper_wick >= 2.0 * body) & small_lower & (close_position <= 0.4)
 
     # Pin bars are the looser, wick-dominance version of the above.
     pin_bar_bull = (lower_wick / span >= pin_wick_ratio) & (close_position >= 0.6)

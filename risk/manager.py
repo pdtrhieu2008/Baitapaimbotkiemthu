@@ -169,15 +169,26 @@ class RiskManager:
     def is_halted(self) -> bool:
         return self.state.halt is not HaltReason.NONE
 
-    def daily_loss_pct(self) -> float:
-        """Loss so far today, as a positive percentage of the day's opening equity."""
-        equity = self.portfolio.equity()
+    def daily_loss_pct(self, marks: dict[str, float] | None = None) -> float:
+        """Loss so far today, as a positive percentage of the day's opening equity.
+
+        Args:
+            marks: latest prices. Pass them whenever they are available — an
+                open, deeply underwater position contributes nothing to realised
+                PnL, so omitting the marks lets a losing day slip past the limit.
+        """
+        equity = self.portfolio.equity(marks)
         change = equity - self.state.daily_start_equity
         return -100.0 * safe_div(change, self.state.daily_start_equity) if change < 0 else 0.0
 
-    def drawdown_pct(self) -> float:
-        """Current drawdown from the high-water mark, as a positive percentage."""
-        equity = self.portfolio.equity()
+    def drawdown_pct(self, marks: dict[str, float] | None = None) -> float:
+        """Current drawdown from the high-water mark, as a positive percentage.
+
+        Args:
+            marks: latest prices, for the same reason as
+                :meth:`daily_loss_pct`.
+        """
+        equity = self.portfolio.equity(marks)
         return max(0.0, 100.0 * safe_div(self.state.peak_equity - equity, self.state.peak_equity))
 
     def update_breakers(self, marks: dict[str, float] | None = None) -> HaltReason:
@@ -197,12 +208,14 @@ class RiskManager:
         if self.state.halt.is_permanent:
             return self.state.halt
 
-        drawdown = self.drawdown_pct()
+        # Both brakes must see the same marked-to-market equity used above,
+        # otherwise an open loser is invisible to them.
+        drawdown = self.drawdown_pct(marks)
         if drawdown >= self.cfg.max_drawdown_pct:
             self._halt(HaltReason.MAX_DRAWDOWN, f"drawdown {drawdown:.2f}%")
             return self.state.halt
 
-        daily = self.daily_loss_pct()
+        daily = self.daily_loss_pct(marks)
         if daily >= self.cfg.daily_loss_limit_pct:
             self._halt(HaltReason.DAILY_LOSS, f"daily loss {daily:.2f}%")
             return self.state.halt
