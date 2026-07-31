@@ -1,0 +1,264 @@
+# ===========================================================================
+# QuantBot - single source of truth.
+#
+# NOTHING is hard-coded in the Python modules: every threshold, period,
+# weight and credential is read from here. ${VAR} placeholders are resolved
+# from the process environment / .env file (see .env.example).
+#
+# Override the file with:  QUANTBOT_CONFIG=config/my_config.yaml
+# Override single keys on the CLI with:  --set risk.risk_per_trade_pct=0.5
+# ===========================================================================
+
+app:
+  name: quantbot
+  # signal -> analyse and notify only (no position tracking)
+  # paper  -> analyse, notify AND track virtual positions in the ledger
+  # live   -> NOT IMPLEMENTED on purpose. See README "Why there is no
+  #           execution module". The bot refuses to start in this mode.
+  mode: paper
+  loop_interval_seconds: 30
+  # A signal is only ever evaluated on a CLOSED bar. This is the single most
+  # important anti-lookahead rule and it is shared with the backtester.
+  only_closed_bars: true
+  state_file: logs/state.json
+  # Persist ledger + risk counters so a restart does not reset daily limits.
+  persist_state: true
+
+exchange:
+  id: binance                 # any ccxt id: binance, bybit, okx, kraken, ...
+  market_type: future         # spot | future  (future -> funding + OI available)
+  api_key: ${BINANCE_API_KEY}
+  api_secret: ${BINANCE_API_SECRET}
+  testnet: false
+  enable_rate_limit: true
+  timeout_ms: 20000
+  max_retries: 4
+  retry_backoff_seconds: 2.0
+
+universe:
+  # Symbols to scan. Use ccxt unified notation.
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+  quote_currency: USDT
+  # Skip symbols whose 24h quote volume is below this (illiquid -> bad fills).
+  min_quote_volume_24h: 50000000
+
+data:
+  # Timeframe the entry decision is taken on.
+  primary_timeframe: 15m
+  # Every timeframe that gets downloaded and analysed.
+  timeframes: [1m, 5m, 15m, 1h, 4h, 1d]
+  ohlcv_limit: 600            # bars fetched per request
+  warmup_bars: 250            # bars discarded before signals are allowed
+  cache_dir: data/cache
+  persist: true               # cache OHLCV to disk (csv) between runs
+  # --- extra market context ---
+  funding_rate: true          # futures only
+  open_interest: true         # futures only
+  liquidations: false         # see README: no public REST endpoint on Binance
+  fear_greed: true            # alternative.me, free, no key
+  btc_dominance: true         # coingecko /global, free, no key
+  news_sentiment: false       # requires NEWS_API_KEY
+  news_provider: cryptopanic  # cryptopanic | newsapi
+  news_api_key: ${NEWS_API_KEY}
+  context_ttl_seconds: 300    # cache TTL for funding/OI/sentiment
+
+indicators:
+  ema_fast: 21
+  ema_slow: 50
+  ema_trend: 200
+  sma_period: 100
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  rsi_bull_mid: 50            # RSI must reclaim this for a long
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  adx_period: 14
+  adx_trend_min: 25           # "ADX > 25" gate
+  adx_strong: 40
+  atr_period: 14
+  atr_min_pct: 0.15           # ATR/price % floor - below = dead market
+  atr_max_pct: 5.0            # ceiling - above = news spike, stand aside
+  supertrend_period: 10
+  supertrend_multiplier: 3.0
+  bb_period: 20
+  bb_std: 2.0
+  keltner_period: 20
+  keltner_multiplier: 1.5
+  donchian_period: 20
+  stoch_rsi_period: 14
+  stoch_rsi_k: 3
+  stoch_rsi_d: 3
+  mfi_period: 14
+  cmf_period: 20
+  obv_ema_period: 21
+  volume_sma_period: 20
+  volume_spike_multiplier: 1.8   # vol > 1.8 * SMA(vol) = spike
+  volume_dry_multiplier: 0.6     # vol < 0.6 * SMA(vol) = dry
+  volume_profile_bins: 24
+  volume_profile_lookback: 120
+  ichimoku_tenkan: 9
+  ichimoku_kijun: 26
+  ichimoku_senkou_b: 52
+  ichimoku_displacement: 26
+  pivot_method: classic       # classic | fibonacci
+  pivot_timeframe: 1d
+
+structure:
+  swing_strength: 3           # fractal: N bars on each side
+  lookback: 150               # bars used for structure / S&R
+  sr_cluster_pct: 0.25        # merge levels closer than this %
+  sr_min_touches: 2
+  zone_atr_multiplier: 0.5    # supply/demand zone thickness
+  room_to_level_atr: 1.0      # "not sitting right under resistance"
+  sweep_wick_ratio: 0.55      # wick/range for a liquidity sweep
+  false_breakout_bars: 3      # close back inside within N bars
+
+strategy:
+  name: confluence
+  allow_long: true
+  allow_short: true
+
+  # --- scoring thresholds (see README "Scoring") ---
+  min_score_strong: 80
+  min_score_normal: 70
+  min_score_weak: 60
+  # Anything below min_score_weak is ignored. Set to min_score_normal to
+  # refuse weak setups entirely (recommended when going live).
+  min_score_to_emit: 70
+
+  # --- component weights, must sum to 100 ---
+  weights:
+    trend: 15                 # EMA stack / Supertrend / Ichimoku
+    macd: 15
+    rsi: 10
+    volume: 20
+    adx: 10
+    price_action: 15
+    structure: 15
+    sentiment: 10             # funding + F&G + dominance + news
+
+  # --- HARD GATES: every enabled gate must pass or NO signal is produced,
+  #     regardless of score. This is the "if conditions are missing, do not
+  #     enter" rule, enforced in code, not by convention.
+  gates:
+    mtf_alignment: true
+    adx_min: true
+    volume_confirmation: true
+    atr_in_range: true
+    room_to_level: true
+    min_rr: true
+    trigger_required: true    # needs a breakout OR a valid pullback
+    no_conflicting_structure: true
+
+  # --- multi-timeframe roles ---
+  mtf:
+    context: [1d, 4h]         # macro bias - must not oppose the trade
+    confirm: [1h]             # must agree
+    entry: [15m, 5m]          # trigger timeframe(s)
+    min_agreement: 0.66       # fraction of weighted TFs that must agree
+    weights: {1d: 3.0, 4h: 2.5, 1h: 2.0, 15m: 1.5, 5m: 1.0, 1m: 0.5}
+
+  cooldown_bars: 3            # bars to wait after a signal on same symbol
+  max_signals_per_symbol_per_day: 6
+
+risk:
+  account_equity: 1000.0      # starting equity for paper mode / sizing
+  risk_per_trade_pct: 1.0     # must be one of allowed_risk_levels
+  allowed_risk_levels: [0.5, 1.0, 2.0]
+  max_open_positions: 3
+  max_positions_per_symbol: 1
+  max_correlated_positions: 2 # e.g. don't hold 3 longs on 3 alts at once
+
+  # --- stop loss ---
+  sl_atr_multiplier: 1.5
+  sl_structure_buffer_atr: 0.25   # extra room beyond the swing point
+  sl_max_pct: 5.0                 # hard cap on stop distance
+  use_structure_stop: true        # prefer swing-based SL, ATR as fallback/cap
+
+  # --- take profit ---
+  tp_rr_targets: [2.0, 3.0]       # partial exits at these R multiples
+  tp_split: [0.5, 0.5]            # fraction of the position per target
+  min_rr: 2.0                     # "Risk Reward >= 2" gate
+
+  # --- in-trade management ---
+  breakeven_at_rr: 1.0
+  trailing_enabled: true
+  trailing_activate_rr: 1.5
+  trailing_atr_multiplier: 2.0
+
+  # --- circuit breakers ---
+  daily_loss_limit_pct: 3.0       # stop trading for the day
+  max_drawdown_pct: 15.0          # stop the bot entirely
+  max_consecutive_losses: 4
+
+  # --- execution-quality guards ---
+  max_spread_pct: 0.08
+  volatility_anomaly_atr_ratio: 3.0   # ATR now vs median ATR
+  max_funding_rate_abs: 0.15          # % - skip when funding is extreme
+  blocked_hours_utc: []               # e.g. [0, 1] to skip thin liquidity
+
+  # --- costs (also used by the backtester) ---
+  leverage: 1.0
+  fee_pct: 0.04               # taker fee, per side, %
+  slippage_pct: 0.02          # assumed slippage, per side, %
+
+backtest:
+  symbol: BTC/USDT
+  timeframe: 15m
+  start: null                 # "2024-01-01" or null for all cached data
+  end: null
+  initial_equity: 1000.0
+  # Orders are filled at the OPEN of the bar AFTER the signal bar closes.
+  # This is the honest default; "close" would be lookahead.
+  execution: next_open
+  # Intrabar SL/TP resolution when both are touched in the same bar.
+  # pessimistic -> assume the STOP is hit first. Keep this.
+  intrabar: pessimistic
+  risk_free_rate: 0.0
+  # How many bars per year, for annualising Sharpe/Sortino. null -> derived
+  # from the timeframe assuming a 24/7 crypto market.
+  periods_per_year: null
+
+optimization:
+  method: grid                # grid | optuna
+  n_trials: 60                # optuna only
+  objective: expectancy       # expectancy | profit_factor | sharpe | sortino | net_profit
+  min_trades: 30              # reject parameter sets with too few trades
+  # Walk-forward: fraction of the data used for the in-sample fit. The score
+  # reported is always the OUT-OF-SAMPLE one, to fight curve fitting.
+  train_fraction: 0.7
+  n_jobs: 1
+  param_grid:
+    indicators.ema_fast: [13, 21, 34]
+    indicators.ema_slow: [50, 89]
+    indicators.rsi_period: [10, 14]
+    indicators.adx_trend_min: [20, 25, 30]
+    risk.sl_atr_multiplier: [1.0, 1.5, 2.0]
+    strategy.min_score_to_emit: [60, 70, 80]
+
+telegram:
+  enabled: true
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+  parse_mode: HTML
+  send_signals: true
+  send_trades: true
+  send_errors: true
+  send_daily_summary: true
+  daily_summary_hour_utc: 0
+  rate_limit_seconds: 1.0     # min delay between two messages
+  max_retries: 3
+  timeout_seconds: 15
+
+logging:
+  level: INFO                 # DEBUG | INFO | WARNING | ERROR
+  dir: logs
+  console: true
+  json_lines: true            # machine-readable copy for signal/trade logs
+  max_bytes: 5242880          # 5 MiB per file
+  backup_count: 5

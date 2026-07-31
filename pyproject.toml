@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantbot"
+version = "0.1.0"
+description = "Modular, risk-first crypto/forex/stock trading-signal bot"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = [
+    "config",
+    "data",
+    "indicators",
+    "analysis",
+    "strategies",
+    "risk",
+    "backtest",
+    "notify",
+    "live",
+    "utils",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+filterwarnings = ["error::RuntimeWarning"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "ARG", "RET"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+ignore_missing_imports = true

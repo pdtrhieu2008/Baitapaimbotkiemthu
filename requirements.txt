@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# QuantBot - runtime dependencies
+#
+# Install:  pip install -r requirements.txt
+#
+# Pinned with lower bounds only: the code is written against stable public
+# APIs of these libraries. If you need a fully reproducible build, run
+# `pip freeze > requirements.lock.txt` after a successful install.
+# ---------------------------------------------------------------------------
+
+# --- Core numeric stack (REQUIRED) -----------------------------------------
+pandas>=2.0
+numpy>=1.24
+scipy>=1.10
+PyYAML>=6.0
+
+# --- Exchange connectivity (REQUIRED for live data) ------------------------
+ccxt>=4.2.0
+aiohttp>=3.9.0
+
+# --- Optional: charts / HTML report ----------------------------------------
+# Only imported lazily by backtest/report.py. The bot runs without them.
+plotly>=5.18.0
+matplotlib>=3.7.0
+
+# --- Optional: hyper-parameter optimisation --------------------------------
+# Only imported lazily by backtest/optimizer.py when method == "optuna".
+# Grid search works without it.
+optuna>=3.5.0
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT required - see README "Dependency notes":
+#
+#   ta / pandas-ta   -> all indicators are implemented in-house on top of
+#                       pandas/numpy (indicators/). Avoids the well known
+#                       pandas-ta breakage on numpy>=2 / pandas>=2.2 and keeps
+#                       every formula auditable + unit-tested in this repo.
+#   vectorbt         -> the backtester here is event-driven and bar-closed so
+#                       it can reuse the *exact* live strategy object. vectorbt
+#                       is vectorised and would require a second, divergent
+#                       implementation of the same rules (a classic source of
+#                       backtest/live mismatch).
+#   backtesting.py   -> same reason as above.
+#   python-telegram-bot -> notify/telegram_client.py talks to the Bot API
+#                       directly over aiohttp (send-only, ~120 lines, no extra
+#                       dep). Install it only if you want inbound commands;
+#                       see README "Telegram".
+#   websockets       -> ccxt.pro (optional, paid) or REST polling is used.
+#   schedule         -> asyncio-based scheduling is built into live/trader.py.
+# ---------------------------------------------------------------------------
