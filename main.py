@@ -53,34 +53,70 @@ def _parse_overrides(pairs: list[str] | None) -> dict[str, Any]:
     return overrides
 
 
+def _global_options() -> argparse.ArgumentParser:
+    """Options accepted both before and after the sub-command.
+
+    Attached to every sub-parser as a parent, because
+    ``main.py backtest --set risk.risk_per_trade_pct=0.5`` is the order people
+    naturally type; accepting it only before the sub-command is a usability trap.
+
+    Every option defaults to ``argparse.SUPPRESS``. That detail is load-bearing:
+    with a normal default, the sub-parser's copy of the option would overwrite a
+    value given *before* the sub-command with its own default, so
+    ``main.py --set risk.risk_per_trade_pct=0.5 backtest`` would silently run at
+    1.0. With SUPPRESS the attribute is simply absent unless the user supplied
+    it, and the earlier value survives. Given on both sides, the one after the
+    sub-command wins.
+    """
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--config", default=argparse.SUPPRESS, help="path to config.yaml"
+    )
+    common.add_argument(
+        "--set", dest="overrides", action="append", metavar="KEY=VALUE",
+        default=argparse.SUPPRESS,
+        help=(
+            "override a config value (repeatable), e.g. --set risk.risk_per_trade_pct=0.5. "
+            "Scalars only - edit config.yaml for lists and mappings."
+        ),
+    )
+    common.add_argument(
+        "--log-level", default=argparse.SUPPRESS,
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+    )
+    common.add_argument(
+        "--no-env", action="store_true", default=argparse.SUPPRESS,
+        help="do not read the .env file",
+    )
+    return common
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser."""
+    common = _global_options()
     parser = argparse.ArgumentParser(
         prog="quantbot",
         description="Modular, risk-first trading-signal bot (crypto / forex / stocks).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
+        parents=[common],
     )
-    parser.add_argument("--config", default=None, help="path to config.yaml")
-    parser.add_argument(
-        "--set", dest="overrides", action="append", metavar="KEY=VALUE",
-        help="override a config value (repeatable), e.g. --set risk.risk_per_trade_pct=0.5",
-    )
-    parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    parser.add_argument("--no-env", action="store_true", help="do not read the .env file")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("config-check", help="validate the configuration and print it masked")
-    subparsers.add_parser("run", help="start the live signal loop")
-    subparsers.add_parser("scan", help="analyse every symbol once and print the verdicts")
-    subparsers.add_parser("telegram-test", help="verify the Telegram configuration")
-    subparsers.add_parser("selftest", help="exercise the full pipeline on synthetic data, offline")
+    def add(name: str, help_text: str) -> argparse.ArgumentParser:
+        return subparsers.add_parser(name, help=help_text, parents=[common])
 
-    fetch = subparsers.add_parser("fetch", help="download and cache candles")
+    add("config-check", "validate the configuration and print it masked")
+    add("run", "start the live signal loop")
+    add("scan", "analyse every symbol once and print the verdicts")
+    add("telegram-test", "verify the Telegram configuration")
+    add("selftest", "exercise the full pipeline on synthetic data, offline")
+
+    fetch = add("fetch", "download and cache candles")
     fetch.add_argument("--symbol", action="append", help="symbol (repeatable); default: all")
 
-    backtest = subparsers.add_parser("backtest", help="replay history")
+    backtest = add("backtest", "replay history")
     backtest.add_argument("--symbol", default=None)
     backtest.add_argument("--timeframe", default=None)
     backtest.add_argument("--start", default=None, help="YYYY-MM-DD")
@@ -89,7 +125,7 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--report-dir", default="reports", help="where to write CSV/HTML")
     backtest.add_argument("--no-export", action="store_true", help="print only")
 
-    optimize = subparsers.add_parser("optimize", help="walk-forward parameter search")
+    optimize = add("optimize", "walk-forward parameter search")
     optimize.add_argument("--symbol", default=None)
     optimize.add_argument("--offline", action="store_true")
     optimize.add_argument("--max-candidates", type=int, default=None)
@@ -100,11 +136,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _load(args: argparse.Namespace) -> Settings:
     """Load settings with CLI overrides applied."""
-    overrides = _parse_overrides(args.overrides)
-    if args.log_level:
-        overrides["logging.level"] = args.log_level
+    # SUPPRESS defaults mean these attributes exist only when supplied.
+    overrides = _parse_overrides(getattr(args, "overrides", None))
+    log_level = getattr(args, "log_level", None)
+    if log_level:
+        overrides["logging.level"] = log_level
     settings = load_settings(
-        args.config, overrides=overrides, env_file=None if args.no_env else ".env"
+        getattr(args, "config", None),
+        overrides=overrides,
+        env_file=None if getattr(args, "no_env", False) else ".env",
     )
     setup_logging(settings.logging)
     return settings
