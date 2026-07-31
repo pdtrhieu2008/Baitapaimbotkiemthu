@@ -70,7 +70,12 @@ def vwap(df: pd.DataFrame, *, anchor: str = "D") -> pd.Series:
     """
     typical = (df["high"] + df["low"] + df["close"]) / 3.0
     volume = df["volume"].fillna(0.0)
-    groups = df.index.to_period(anchor)
+    # Periods carry no timezone, so drop it explicitly rather than letting
+    # pandas warn about it. The index is already UTC, so the session boundaries
+    # are UTC midnights either way.
+    index = df.index
+    naive = index.tz_localize(None) if index.tz is not None else index
+    groups = naive.to_period(anchor)
     cum_pv = (typical * volume).groupby(groups).cumsum()
     cum_vol = volume.groupby(groups).cumsum()
     # A zero-volume session start would divide by zero; NaN is the honest answer.
