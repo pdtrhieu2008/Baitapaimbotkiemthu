@@ -112,7 +112,7 @@ def test_structure_and_context_are_causal(builder: ContextBuilder, ohlcv: pd.Dat
         assert from_full.pattern_names == from_truncated.pattern_names
 
 
-def test_strategy_verdict_is_causal(test_settings: Settings, ohlcv: pd.DataFrame) -> None:
+def test_strategy_verdict_is_causal(test_settings: Settings) -> None:
     """The strategy's decision at a bar must not depend on later bars."""
     builder = ContextBuilder(test_settings.indicators, test_settings.structure)
     base = make_ohlcv(bars=1400, seed=11, regime_shifts=True)

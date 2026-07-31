@@ -147,7 +147,7 @@ def test_signal_rejects_a_stop_on_the_wrong_side(settings: Settings) -> None:
         )
 
 
-def test_signal_requires_a_target(settings: Settings) -> None:
+def test_signal_requires_a_target() -> None:
     with pytest.raises(ValueError, match="at least one take-profit"):
         Signal(
             symbol="X", timeframe="15m", side=SignalSide.LONG,
@@ -346,7 +346,7 @@ def test_r_multiple_uses_the_original_risk_after_breakeven(settings: Settings) -
 # ---------------------------------------------------------------------------
 # Ledger
 # ---------------------------------------------------------------------------
-def test_slippage_always_hurts(settings: Settings) -> None:
+def test_slippage_always_hurts() -> None:
     portfolio = Portfolio(1000.0, fee_pct=0.0, slippage_pct=0.1)
     # Entering long pays up; exiting long sells lower.
     assert portfolio.fill_price(100.0, SignalSide.LONG, entering=True) > 100.0

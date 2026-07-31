@@ -82,7 +82,7 @@ def test_inside_and_outside_bars() -> None:
 
 
 def test_pattern_bias_nets_conflicting_patterns_to_zero() -> None:
-    row = pd.Series({name: False for name in PATTERN_COLUMNS})
+    row = pd.Series(dict.fromkeys(PATTERN_COLUMNS, False))
     row["hammer"] = True
     assert pattern_bias(row)[0] == 1
 
@@ -109,10 +109,10 @@ def _staircase(direction: int, legs: int = 14, leg_bars: int = 14) -> pd.DataFra
     lower highs on its right), so there is nothing to label. Real trends pull
     back, and it is the pullbacks that create the HH/HL sequence.
     """
+    advance = 6.0
+    retrace = -2.5
     prices: list[float] = [100.0]
-    for leg in range(legs):
-        advance = 6.0 if leg % 2 == 0 else 6.0
-        retrace = -2.5
+    for _leg in range(legs):
         for _ in range(leg_bars):
             prices.append(prices[-1] + direction * advance / leg_bars)
         for _ in range(leg_bars // 2):

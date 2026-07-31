@@ -300,7 +300,7 @@ def test_engine_leaves_the_input_untouched(settings, ohlcv: pd.DataFrame) -> Non
     pd.testing.assert_frame_equal(ohlcv, before)
 
 
-def test_engine_skips_pivots_on_the_pivot_timeframe(settings, builder) -> None:
+def test_engine_skips_pivots_on_the_pivot_timeframe(builder) -> None:
     """Daily pivots on a daily chart would be degenerate, so they are omitted."""
     daily = make_ohlcv(bars=400, seed=9, freq="1D")
     enriched = builder.enrich(daily, "1d")

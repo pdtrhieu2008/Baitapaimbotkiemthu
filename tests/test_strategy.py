@@ -305,8 +305,8 @@ def test_cooldown_blocks_a_repeat_signal(test_settings: Settings) -> None:
     for timeframe in ("15m", "1h", "4h"):
         force_side(snapshot.contexts[timeframe], SignalSide.LONG)
 
-    from strategies.base import SignalStrength
     from risk.planner import TradePlanner
+    from strategies.base import SignalStrength
 
     plan = TradePlanner(test_settings.risk).plan(SignalSide.LONG, 100.0, 1.0)
     fake = Signal(
