@@ -34,7 +34,12 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "ARG", "RET"]
-ignore = ["E501"]
+# E501: long lines are tolerated in explanatory comments and log messages.
+# ARG002: unused method arguments are intentional where a signature is part of a
+#   Protocol or a stable public contract (e.g. Notifier.rejection keeps its
+#   snapshot parameter, CCXTProvider.fetch_liquidations documents a deliberate
+#   no-op). Removing them would break substitutability.
+ignore = ["E501", "ARG002"]
 
 [tool.mypy]
 python_version = "3.10"

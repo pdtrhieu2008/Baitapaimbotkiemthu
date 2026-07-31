@@ -307,4 +307,4 @@ class CCXTProvider:
         :class:`data.models.ExternalContext` as an extra sentiment input.
         """
         _log.debug("liquidation feed is not implemented; see the docstring for why")
-        return None
+        return

@@ -25,7 +25,7 @@ from typing import Any
 
 import pandas as pd
 
-from backtest.engine import BacktestResult, Backtester
+from backtest.engine import Backtester, BacktestResult
 from config.settings import ConfigError, Settings
 from strategies import build_strategy
 from utils.logger import get_logger
@@ -191,7 +191,7 @@ class Optimiser:
         boundary = primary.index[cut_position]
 
         train = {tf: frame[frame.index < boundary] for tf, frame in frames.items()}
-        test = {tf: frame for tf, frame in frames.items()}  # full history...
+        test = dict(frames)  # full history...
         # ...but the test *run* is restricted to bars after the boundary via
         # backtest.start, so the out-of-sample walk still has its indicator
         # warm-up available. Trimming the frames instead would force every

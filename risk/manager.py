@@ -15,7 +15,7 @@ smaller position, so the cash lost when the stop is hit is the same either way.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
 

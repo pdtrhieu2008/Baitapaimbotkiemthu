@@ -35,10 +35,10 @@ from analysis.context import ContextBuilder, MarketSnapshot, TimeframeContext
 from backtest.metrics import PerformanceMetrics, compute_metrics, equity_dataframe
 from config.settings import Settings
 from data.models import ExternalContext
+from risk.execution import resolve_position_on_bar
 from risk.manager import RiskManager
 from risk.portfolio import ExitReason, Portfolio, Position, Trade
 from strategies.base import Rejection, Signal, SignalSide, Strategy
-from utils.helpers import safe_div
 from utils.logger import get_logger
 from utils.timeframes import bars_per_year, sort_timeframes, timeframe_to_timedelta
 
@@ -332,64 +332,25 @@ class Backtester:
         close: float,
         atr: float,
     ) -> None:
-        """Resolve stops and targets on this bar, then advance the stops."""
+        """Resolve stops and targets on this bar, then advance the stops.
+
+        Delegates to :func:`risk.execution.resolve_position_on_bar`, the same
+        function the live loop uses, so the two cannot disagree about when a stop
+        was hit.
+        """
         pessimistic = self.settings.backtest.intrabar == "pessimistic"
 
         for position in list(portfolio.positions.values()):
             if position.symbol != symbol:
                 continue
-            long_side = position.side is SignalSide.LONG
-            stop_hit = (low <= position.stop_loss) if long_side else (high >= position.stop_loss)
-
-            target = position.next_target()
-            target_hit = False
-            if target is not None:
-                target_hit = (high >= target.price) if long_side else (low <= target.price)
-
-            if stop_hit and (pessimistic or not target_hit):
-                self._exit(
-                    portfolio, risk, state, position, position.stop_loss,
-                    ExitReason.TRAILING_STOP if position.trailing_active
-                    else (ExitReason.BREAK_EVEN if position.breakeven_done else ExitReason.STOP_LOSS),
-                    moment, index, fraction=1.0,
-                )
-                continue
-
-            # Targets are taken in order; only one per bar, which is the
-            # conservative reading of a single OHLC record.
-            if target_hit and target is not None:
-                position.targets_hit += 1
-                is_last_target = position.targets_hit >= len(position.take_profits)
-                fraction = (
-                    1.0 if is_last_target else self._target_fraction(position, target.fraction)
-                )
-                self._exit(
-                    portfolio, risk, state, position, target.price,
-                    ExitReason.TAKE_PROFIT, moment, index, fraction=fraction,
-                )
-                if not position.is_open:
-                    continue
-
-            if stop_hit and target_hit and not pessimistic and position.is_open:
-                self._exit(
-                    portfolio, risk, state, position, position.stop_loss,
-                    ExitReason.STOP_LOSS, moment, index, fraction=1.0,
-                )
-                continue
-
-            if position.is_open:
-                risk.manage(position, high=high, low=low, atr=atr)
-
-    @staticmethod
-    def _target_fraction(position: Position, planned_fraction: float) -> float:
-        """Translate a fraction-of-total into a fraction-of-remaining.
-
-        ``tp_split`` is expressed as a share of the *original* position, but
-        :meth:`Portfolio.close` takes a share of what is *left*. Without this
-        conversion a 50/50 split would close 50% and then 25%.
-        """
-        share_of_original = planned_fraction * position.quantity
-        return float(np.clip(safe_div(share_of_original, position.remaining, 1.0), 0.0, 1.0))
+            outcome = resolve_position_on_bar(
+                portfolio, risk, position,
+                timestamp=moment, high=high, low=low, atr=atr,
+                pessimistic=pessimistic,
+                bars_held=index - state.entry_bar.get(position.id, index),
+            )
+            if outcome.closed:
+                state.entry_bar.pop(position.id, None)
 
     def _exit(
         self,

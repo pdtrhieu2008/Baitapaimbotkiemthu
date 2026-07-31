@@ -159,6 +159,77 @@ class Position:
             "excursion_r": round(self.excursion_r, 2),
         }
 
+    # -- persistence --------------------------------------------------------
+    def to_state(self) -> dict[str, object]:
+        """Full serialisable state, for surviving a restart.
+
+        Distinct from :meth:`to_dict`, which is a lossy summary for logs. Every
+        field needed to keep managing the position — the moved stop, which
+        targets are already taken, the excursion extremes that drive trailing —
+        is included, because a restart that forgot them would mismanage the exit.
+        """
+        return {
+            "id": self.id,
+            "symbol": self.symbol,
+            "side": self.side.value,
+            "entry_price": self.entry_price,
+            "quantity": self.quantity,
+            "stop_loss": self.stop_loss,
+            "take_profits": [
+                {"price": tp.price, "fraction": tp.fraction, "rr": tp.rr}
+                for tp in self.take_profits
+            ],
+            "opened_at": self.opened_at.isoformat(),
+            "atr": self.atr,
+            "initial_stop": self.initial_stop,
+            "initial_risk": self.initial_risk,
+            "signal_score": self.signal_score,
+            "signal_strength": self.signal_strength,
+            "trigger": self.trigger,
+            "timeframe": self.timeframe,
+            "remaining": self.remaining,
+            "realised_pnl": self.realised_pnl,
+            "fees_paid": self.fees_paid,
+            "targets_hit": self.targets_hit,
+            "breakeven_done": self.breakeven_done,
+            "trailing_active": self.trailing_active,
+            "best_price": self.best_price,
+            "worst_price": self.worst_price,
+        }
+
+    @classmethod
+    def from_state(cls, data: dict[str, object]) -> Position:
+        """Rebuild a position from :meth:`to_state` output."""
+        targets = tuple(
+            TakeProfit(price=float(t["price"]), fraction=float(t["fraction"]), rr=float(t["rr"]))
+            for t in data.get("take_profits", [])  # type: ignore[union-attr]
+        )
+        return cls(
+            id=int(data["id"]),  # type: ignore[arg-type]
+            symbol=str(data["symbol"]),
+            side=SignalSide(int(data["side"])),  # type: ignore[arg-type]
+            entry_price=float(data["entry_price"]),  # type: ignore[arg-type]
+            quantity=float(data["quantity"]),  # type: ignore[arg-type]
+            stop_loss=float(data["stop_loss"]),  # type: ignore[arg-type]
+            take_profits=targets,
+            opened_at=datetime.fromisoformat(str(data["opened_at"])),
+            atr=float(data["atr"]),  # type: ignore[arg-type]
+            initial_stop=float(data["initial_stop"]),  # type: ignore[arg-type]
+            initial_risk=float(data["initial_risk"]),  # type: ignore[arg-type]
+            signal_score=float(data.get("signal_score", 0.0)),  # type: ignore[arg-type]
+            signal_strength=str(data.get("signal_strength", "")),
+            trigger=str(data.get("trigger", "")),
+            timeframe=str(data.get("timeframe", "")),
+            remaining=float(data.get("remaining", 0.0)),  # type: ignore[arg-type]
+            realised_pnl=float(data.get("realised_pnl", 0.0)),  # type: ignore[arg-type]
+            fees_paid=float(data.get("fees_paid", 0.0)),  # type: ignore[arg-type]
+            targets_hit=int(data.get("targets_hit", 0)),  # type: ignore[arg-type]
+            breakeven_done=bool(data.get("breakeven_done", False)),
+            trailing_active=bool(data.get("trailing_active", False)),
+            best_price=float(data.get("best_price", float("nan"))),  # type: ignore[arg-type]
+            worst_price=float(data.get("worst_price", float("nan"))),  # type: ignore[arg-type]
+        )
+
 
 @dataclass(slots=True)
 class Trade:
@@ -430,3 +501,42 @@ class Portfolio:
             "closed_trades": len(self.trades),
             "realised_pnl": round(self.realised_pnl, 4),
         }
+
+    # -- persistence --------------------------------------------------------
+    def export_state(self) -> dict[str, object]:
+        """Serialise cash and open positions for a restart.
+
+        Closed trades are intentionally **not** restored into the ledger: they
+        live in ``logs/trade.jsonl``, and re-loading them would double-count the
+        realised PnL that is already reflected in ``cash``.
+        """
+        return {
+            "initial_equity": self.initial_equity,
+            "cash": self.cash,
+            "positions": [p.to_state() for p in self.positions.values()],
+        }
+
+    def restore_state(self, data: dict[str, object]) -> int:
+        """Restore cash and open positions.
+
+        Args:
+            data: output of :meth:`export_state`.
+
+        Returns:
+            Number of positions restored.
+        """
+        self.cash = float(data.get("cash", self.initial_equity))  # type: ignore[arg-type]
+        self.positions.clear()
+        restored = 0
+        for entry in data.get("positions", []):  # type: ignore[union-attr]
+            try:
+                position = Position.from_state(entry)
+            except (KeyError, TypeError, ValueError):
+                continue
+            self.positions[position.id] = position
+            # Keep the id counter ahead of anything restored so a new position
+            # cannot collide with a persisted one.
+            while next(_position_ids) <= position.id:
+                pass
+            restored += 1
+        return restored
