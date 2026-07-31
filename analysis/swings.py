@@ -53,23 +53,29 @@ def _fractal_mask(values: np.ndarray, strength: int, *, find_high: bool) -> np.n
     every bar to its left and at least as extreme as every bar to its right.
     Without that rule a flat double top would register two swings at the same
     price and corrupt the HH/LL sequence.
+
+    Vectorised with a sliding window because this runs once per timeframe per
+    bar in a backtest; the equivalent Python loop dominated the profile.
+    ``NaN`` centres compare ``False`` and are therefore skipped automatically.
     """
     n = values.size
+    width = 2 * strength + 1
     mask = np.zeros(n, dtype=bool)
-    if n < 2 * strength + 1:
+    if n < width:
         return mask
 
-    for i in range(strength, n - strength):
-        centre = values[i]
-        if not np.isfinite(centre):
-            continue
-        left = values[i - strength : i]
-        right = values[i + 1 : i + strength + 1]
+    windows = np.lib.stride_tricks.sliding_window_view(values, width)
+    centre = windows[:, strength]
+    left = windows[:, :strength]
+    right = windows[:, strength + 1 :]
+
+    with np.errstate(invalid="ignore"):
         if find_high:
-            if centre > left.max() and centre >= right.max():
-                mask[i] = True
-        elif centre < left.min() and centre <= right.min():
-            mask[i] = True
+            found = (centre > left.max(axis=1)) & (centre >= right.max(axis=1))
+        else:
+            found = (centre < left.min(axis=1)) & (centre <= right.min(axis=1))
+
+    mask[strength : n - strength] = found
     return mask
 
 
