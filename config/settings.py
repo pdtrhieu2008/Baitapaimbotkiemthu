@@ -438,11 +438,15 @@ class StrategyConfig:
         missing_w = set(self.COMPONENTS) - set(self.weights)
         if missing_w:
             raise ConfigError(f"strategy.weights is missing component(s): {sorted(missing_w)}")
-        total = sum(float(v) for v in self.weights.values())
-        if abs(total - 100.0) > 1e-6:
-            raise ConfigError(f"strategy.weights must sum to 100, got {total}")
         if any(float(v) < 0 for v in self.weights.values()):
             raise ConfigError("strategy.weights must all be >= 0")
+        # Weights are RELATIVE: the scorer normalises the earned points over the
+        # weight that was actually available, so they need not sum to 100. That
+        # is what lets a component be dropped (no sentiment feed configured)
+        # without silently lowering every score and shifting the thresholds.
+        total = sum(float(v) for v in self.weights.values())
+        if total <= 0:
+            raise ConfigError("strategy.weights must not all be zero")
         unknown_g = set(self.gates) - set(self.GATE_KEYS)
         if unknown_g:
             raise ConfigError(f"strategy.gates has unknown key(s): {sorted(unknown_g)}")

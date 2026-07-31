@@ -131,7 +131,14 @@ strategy:
   # refuse weak setups entirely (recommended when going live).
   min_score_to_emit: 70
 
-  # --- component weights, must sum to 100 ---
+  # --- component weights ---
+  # These are RELATIVE weights. The scorer divides the points earned by the
+  # weight that was actually AVAILABLE and rescales to 0-100, so they do not
+  # have to sum to 100 (these sum to 110). The reason for normalising rather
+  # than requiring a fixed sum: when a component has no data - e.g. no funding
+  # or sentiment feed on a spot market - its weight leaves the denominator
+  # entirely. Scoring it as 0 instead would cap every score at ~91 and quietly
+  # change the meaning of the 60/70/80 thresholds below.
   weights:
     trend: 15                 # EMA stack / Supertrend / Ichimoku
     macd: 15
@@ -242,7 +249,12 @@ optimization:
     strategy.min_score_to_emit: [60, 70, 80]
 
 telegram:
-  enabled: true
+  # Ships DISABLED so a fresh clone starts without credentials. Flip to true
+  # after filling TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env - the bot
+  # refuses to start if enabled=true while either value is empty, rather than
+  # failing silently on the first signal. When disabled, every notification is
+  # still written to logs/telegram.log so nothing is lost.
+  enabled: false
   bot_token: ${TELEGRAM_BOT_TOKEN}
   chat_id: ${TELEGRAM_CHAT_ID}
   parse_mode: HTML
