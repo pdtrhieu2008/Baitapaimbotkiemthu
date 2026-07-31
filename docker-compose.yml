@@ -1,0 +1,71 @@
+# ===========================================================================
+# QuantBot - docker compose
+#
+#   cp .env.example .env && edit it
+#   docker compose build
+#   docker compose run --rm bot config-check     # validate before starting
+#   docker compose run --rm bot fetch            # populate the candle cache
+#   docker compose run --rm bot backtest         # verify on real history
+#   docker compose up -d                         # start the signal loop
+#   docker compose logs -f bot
+#
+# The one-shot commands use `run --rm` so they do not fight the long-running
+# service for the same container name.
+# ===========================================================================
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: quantbot:latest
+    container_name: quantbot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TZ: UTC
+      QUANTBOT_CONFIG: /app/config/config.yaml
+      # Uncomment for a verbose run while diagnosing.
+      # QUANTBOT_LOG_LEVEL: DEBUG
+
+    volumes:
+      # Config is mounted read-only so a container cannot rewrite its own
+      # parameters, and so an edit on the host takes effect on restart without
+      # a rebuild.
+      - ./config:/app/config:ro
+      # These must survive the container: the risk counters, the candle cache
+      # and the audit trail.
+      - ./logs:/app/logs
+      - ./data/cache:/app/data/cache
+      - ./reports:/app/reports
+
+    # No published ports: the bot makes outbound calls only and exposes no
+    # network service. Nothing to reach means nothing to attack.
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+    # Bound the blast radius of a runaway loop on a small VPS.
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          memory: 256M
+
+    healthcheck:
+      test: ["CMD", "python", "main.py", "config-check"]
+      interval: 5m
+      timeout: 30s
+      start_period: 40s
+      retries: 3
+
+    security_opt:
+      - no-new-privileges:true
+
+    stop_grace_period: 45s   # let the current cycle finish and persist state

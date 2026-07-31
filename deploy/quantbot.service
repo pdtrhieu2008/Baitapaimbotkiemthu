@@ -1,0 +1,80 @@
+# ===========================================================================
+# systemd unit for running QuantBot 24/7 without Docker.
+#
+# Install:
+#   sudo cp deploy/quantbot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now quantbot
+#   journalctl -u quantbot -f
+#
+# Assumes the layout produced by the README's VPS instructions:
+#   /opt/quantbot            the checkout
+#   /opt/quantbot/.venv      the virtualenv
+#   /opt/quantbot/.env       credentials, chmod 600, owned by the service user
+# ===========================================================================
+
+[Unit]
+Description=QuantBot trading-signal bot
+Documentation=https://github.com/pdtrhieu2008/Baitapaimbotkiemthu
+# Do not start before the clock is right: every bar boundary, the closed-bar
+# check and the daily risk reset are computed from system time.
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=quantbot
+Group=quantbot
+WorkingDirectory=/opt/quantbot
+
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=TZ=UTC
+EnvironmentFile=/opt/quantbot/.env
+
+# Refuse to start on a bad configuration rather than crash-looping later.
+ExecStartPre=/opt/quantbot/.venv/bin/python main.py config-check
+ExecStart=/opt/quantbot/.venv/bin/python main.py run
+
+# SIGTERM lets the loop finish its cycle and persist state; only then is it
+# killed. Matches stop_grace_period in docker-compose.yml.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+Restart=on-failure
+RestartSec=30
+# If it fails 5 times in 10 minutes something is genuinely wrong: stop, so a
+# broken deploy is visible instead of hammering the exchange in a loop.
+StartLimitBurst=5
+StartLimitIntervalSec=600
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=quantbot
+
+# --- Hardening ---
+# The process holds exchange credentials; give it the least it can work with.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=false        # numpy/scipy need writable-executable pages
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# The only paths the bot may write to.
+ReadWritePaths=/opt/quantbot/logs /opt/quantbot/data/cache /opt/quantbot/reports
+
+# Bound resource use on a small VPS.
+MemoryMax=1G
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target

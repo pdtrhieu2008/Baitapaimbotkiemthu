@@ -1,0 +1,47 @@
+# Keep the build context small and, more importantly, keep host state out of
+# the image. Without this, `COPY data/ ./data/` would bake a local candle cache
+# into the image and `.env` could end up in a layer.
+
+# --- Secrets: must never enter a layer ------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- Host runtime state ----------------------------------------------------
+logs/
+data/cache/
+reports/
+state.json
+
+# --- Virtualenvs and VCS ---------------------------------------------------
+.venv/
+venv/
+env/
+.git/
+.gitignore
+
+# --- Python artefacts ------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- Tooling caches --------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Not needed at runtime -------------------------------------------------
+tests/
+deploy/
+Makefile
+README.md
+requirements-dev.txt
+.idea/
+.vscode/
+.DS_Store
